@@ -10,7 +10,9 @@ This repository is a fork of the original CellViT++ repository (https://github.c
   * **Export individual cell predictions:** we export the individual cell predictions for each dataset. This was done by using adapting the `cellvit/training/evaluate/inference_cellvit_experiment_detection.py` script to export the individual cell predictions as contours.
   * **Panoptic quality calculation:** we implemented a panoptic quality calculation for each dataset (replicates the `classpose` framework for evaluation). This is done by using the `pq_metrics` folder which contains the implementation of the panoptic quality calculation. The reason to implement this was to facilitate the use of the `cell_pred_dicts` produced by `cellvit/training/evaluate/inference_cellvit_experiment_detection.py`. CellViT++ calculates class-specific F1-scores on cells which were in fact detected, leading to performance overestimates. To avoid this, we calculate the panoptic quality on the entire image and report the F1-scores on cells which were in fact detected.
 
-Please refer to the [README file in `training_routine`](./training_routine/README.md) for more information. 
+Please refer to the [README file in `training_routine`](./training_routine/README.md) for more information. Below is the original README file for CellViT++.
+
+
 ---
 
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-31014/)
