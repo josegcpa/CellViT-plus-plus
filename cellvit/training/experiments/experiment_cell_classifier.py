@@ -170,13 +170,13 @@ class ExperimentCellVitClassifier(BaseExperiment):
         # get ids
         self.run_conf["logging"]["run_id"] = run.id
         self.run_conf["logging"]["wandb_file"] = run.id
-
+        
         # overwrite configuration with sweep values are leave them as they are
         if self.run_conf["run_sweep"] is True:
             self.run_conf["logging"]["sweep_id"] = run.sweep_id
             self.run_conf["logging"]["log_dir"] = str(
                 Path(self.default_conf["logging"]["log_dir"])
-                / f"sweep_{run.sweep_id}"
+                / f"sweep_{self.run_conf['sweep']['name']}"
                 / f"{self.run_name}_{self.run_conf['logging']['run_id']}"
             )
             self.overwrite_sweep_values(self.run_conf, run.config)
