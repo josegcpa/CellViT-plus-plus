@@ -12,11 +12,11 @@ do
     echo Creating CellViT++ dataset for $DATASET_NAME
     out_dir=$DATASET_DIR/$DATASET_NAME
     rm -rf $out_dir
-    python training_routine/create-cellvitpp-dataset-1.py \
+    python create-cellvitpp-dataset-1.py \
         --data_dir $dataset \
         --output_dir $out_dir \
         --sweep_name $DATASET_NAME &&
-    uv run python training_routine/create-cellvitpp-dataset-2.py \
+    uv run python create-cellvitpp-dataset-2.py \
         --output_dir $out_dir &
 done
 

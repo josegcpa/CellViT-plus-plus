@@ -1,3 +1,18 @@
+# Fork context
+
+This repository is a fork of the original CellViT++ repository (https://github.com/TIO-IKIM/CellViT-plus-plus). The main difference is that this repository is the training and evaluation routine for CellViT++ models. Inside `training_routine` we outline three scripts which define the entire approach:
+
+1. Dataset creation (`create-all-datasets.sh`): this creates the datasets from the standard `numpy` array format (`images.npy`, `labels.npy`)
+  * _A note:_ we worked with `numpy` version >=2.0 when constructing the original `images.npy` and `labels.npy` datasets, which leads to a fairly complicated process of creating a new dataset. First we convert the `numpy` arrays to individual PNG images for input and `npz` arrays for ground truth. We then have to use `numpy` version <2.0 (which is what is used by CellViT++) to open the `npz` arrays and convert them to `npy` arrays. This is because `npy` has no backwards compatibility between versions <2.0 and >=2.0, while `npz` has.
+2. Model training (`train-all-datasets.sh`): this trains the models on the created datasets. This performs 100 trials of Bayesian search with a pre-defined search space, which is identical to all models.
+3. Model evaluation (`eval-all-datasets.sh`): this evaluates the models on the created datasets. First it selects the best model configuration for each dataset and then it runs inference on the test set. It also calculates the panoptic quality for each dataset. This part is the one which introduced the most changes as it required:
+  * **Tiled predictions:** most datasets are relatively stable in size but some (i.e. MoNuSAC, NuCLS) introduced odd sizes. To handle this, we implemented a tiled prediction approach which i) predicts the image in tiles of a fixed size ($256 \times 256$ pixels) with an overlap of 64 pixels and ii) combines individual cell instance predictions by keeping the largest object whenever there is an intersection. The rationale for this is simple - this was performed mainly to avoid having cells on the edges of different tiles and to reduce tiling artifacts as the overlap is sufficiently big to do so.
+  * **Export individual cell predictions:** we export the individual cell predictions for each dataset. This was done by using adapting the `cellvit/training/evaluate/inference_cellvit_experiment_detection.py` script to export the individual cell predictions as contours.
+  * **Panoptic quality calculation:** we implemented a panoptic quality calculation for each dataset (replicates the `classpose` framework for evaluation). This is done by using the `pq_metrics` folder which contains the implementation of the panoptic quality calculation. The reason to implement this was to facilitate the use of the `cell_pred_dicts` produced by `cellvit/training/evaluate/inference_cellvit_experiment_detection.py`. CellViT++ calculates class-specific F1-scores on cells which were in fact detected, leading to performance overestimates. To avoid this, we calculate the panoptic quality on the entire image and report the F1-scores on cells which were in fact detected.
+
+Please refer to the [README file in `training_routine`](./training_routine/README.md) for more information. 
+---
+
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-31014/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)

@@ -1,6 +1,6 @@
 set -e
 
-SWEEPS_DIR=logs_local
+SWEEPS_DIR=../logs_local
 CELLVIT_PATH=../checkpoints/CellViT-Virchow-x40-AMP.pth
 
 for sweep in $SWEEPS_DIR/sweep_*
@@ -43,7 +43,7 @@ do
         --input_shape $MAX_HEIGHT $MAX_WIDTH
     
     # send this to the background
-    uv run python training_routine/calculate-metrics.py \
+    uv run python calculate-metrics.py \
         --logdir $BEST_CONFIGURATION \
         --output_path $sweep &
     
