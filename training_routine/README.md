@@ -68,7 +68,7 @@ This script:
 1. Finds the best model configuration for each dataset
 2. Calculates image dimensions for proper resizing
 3. Runs inference on test sets
-4. Calculates evaluation metrics including AUROC and Panoptic Quality
+4. Calculates evaluation metrics, particularly panoptic quality and F1-score
 
 ## Customization
 
@@ -114,5 +114,5 @@ The evaluation script uses a pre-trained CellViT model from `../checkpoints/Cell
 ## Notes
 
 - The training process automatically handles data splitting into training/validation sets
-- Evaluation metrics include both classification (AUROC) and segmentation (Panoptic Quality) scores
+- Evaluation metrics include both classification (F1-scores) and detection/segmentation (panoptic quality) scores
 - The scripts are designed to be run sequentially, with each script depending on the output of the previous one
