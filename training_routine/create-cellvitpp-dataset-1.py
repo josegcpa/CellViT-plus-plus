@@ -6,7 +6,9 @@ from pathlib import Path
 from skimage import io
 from tqdm import trange
 
-YAML_BASE_FILE = """
+CELLVIT_PATH = "./checkpoints/CellViT-Virchow-x40-AMP.pth"
+
+YAML_BASE_FILE = f"""
 logging:
   mode: offline
   project: cellvit++
@@ -41,7 +43,7 @@ data:
   label_map:
     
 
-cellvit_path: ./checkpoints/CellViT-Virchow-x40-AMP.pth
+cellvit_path: {CELLVIT_PATH}
 
 model:
   parameters:
