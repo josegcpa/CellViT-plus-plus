@@ -2,6 +2,9 @@ set -e
 
 SWEEPS_DIR=../logs_local
 CELLVIT_PATH=../checkpoints/CellViT-Virchow-x40-AMP.pth
+METRICS_DIR=../metrics
+
+mkdir -p $METRICS_DIR
 
 for sweep in $SWEEPS_DIR/sweep_*
 do
@@ -43,8 +46,11 @@ do
         --input_shape $MAX_HEIGHT $MAX_WIDTH
     
     # send this to the background
-    uv run python calculate-metrics.py \
+    echo uv run python calculate-metrics.py \
         --logdir $BEST_CONFIGURATION \
-        --output_path $sweep &
+        --output_path $sweep
     
+    DATASET_NAME=$(echo $sweep | cut -d / -f 3 | cut -d _ -f 2)
+    cp $sweep/metrics.csv $METRICS_DIR/$DATASET_NAME.csv
+    cp $sweep/metrics_cellvit.csv $METRICS_DIR/"$DATASET_NAME"_cellvit.csv
 done
