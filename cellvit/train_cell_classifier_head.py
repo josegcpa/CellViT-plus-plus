@@ -51,7 +51,8 @@ if __name__ == "__main__":
             sweep_id = wandb.sweep(
                 sweep=sweep_configuration, project=configuration["logging"]["project"]
             )
-            wandb.agent(sweep_id=sweep_id, function=experiment.run_experiment)
+            count = sweep_configuration.get('run_cap', None)
+            wandb.agent(sweep_id=sweep_id, function=experiment.run_experiment, count=count)
         elif "agent" in configuration and configuration["agent"] is not None:
             # add agent to already existing sweep, not run sweep must be set to true
             configuration["run_sweep"] = True
