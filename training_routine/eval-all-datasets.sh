@@ -39,14 +39,14 @@ do
 
     echo "- Using $MAX_HEIGHT x $MAX_WIDTH"
 
-    echo uv run python3 ../cellvit/training/evaluate/inference_cellvit_experiment_detection.py \
+    uv run python3 ../cellvit/training/evaluate/inference_cellvit_experiment_detection.py \
         --logdir $BEST_CONFIGURATION \
         --dataset_path $DATASET_PATH \
         --cellvit_path $CELLVIT_PATH \
         --input_shape $MAX_HEIGHT $MAX_WIDTH
     
     # send this to the background
-    echo uv run python calculate-metrics.py \
+    uv run python calculate-metrics.py \
         --logdir $BEST_CONFIGURATION \
         --output_path $sweep
     
