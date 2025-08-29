@@ -94,25 +94,9 @@ The evaluation script uses a pre-trained CellViT model from `../checkpoints/Cell
 - **Training Logs**: `logs_local/sweep_<timestamp>/`
 - **Evaluation Results**: Stored in respective sweep directories
 
-## Troubleshooting
+## Important note
 
-1. **Numpy Version Issues**:
+**Numpy Version Issues**:
 
-   - The scripts handle Numpy version compatibility between Classpose (Numpy 2.0) and CellViT++ (Numpy ~1.24)
-   - If you encounter version conflicts, make sure to use UV for environment management
-
-2. **CUDA Out of Memory**:
-
-   - Reduce batch size in the training configuration
-   - Use a smaller model variant
-   - Decrease input image size
-
-3. **Missing Dependencies**:
-   - Run `uv pip install -r requirements.txt` in the project root
-   - Make sure all required Python packages are installed
-
-## Notes
-
-- The training process automatically handles data splitting into training/validation sets
-- Evaluation metrics include both classification (F1-scores) and detection/segmentation (panoptic quality) scores
-- The scripts are designed to be run sequentially, with each script depending on the output of the previous one
+- The dataset creation scripts handle Numpy version compatibility between Classpose (Numpy 2.0) and CellViT++ (Numpy ~1.24)
+- If you encounter version conflicts, make sure to use `uv` for environment management
