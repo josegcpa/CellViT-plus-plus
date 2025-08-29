@@ -6,7 +6,7 @@ from pathlib import Path
 from skimage import io
 from tqdm import trange
 
-CELLVIT_PATH = "./checkpoints/CellViT-Virchow-x40-AMP.pth"
+CELLVIT_PATH = "../checkpoints/CellViT-Virchow-x40-AMP.pth"
 
 YAML_BASE_FILE = f"""
 logging:
@@ -73,21 +73,23 @@ training:
   mixed_precision: true
   eval_every: 1
 """
-    
+
 def get_centers(inst_map: np.ndarray, type_map: np.ndarray) -> np.ndarray:
-  x, y = np.where(inst_map > 0)
-  v = inst_map[x, y].astype(int)
-  c = type_map[x, y].astype(int)
-  us = np.unique(v).astype(int)
-  centers = []
-  for u in us:
-    centers.append([
-          np.mean(y[v == u]).astype(int), 
-          np.mean(x[v == u]).astype(int), 
-          c[v == u].max() - 1
-        ])
-  return np.array(centers)
-    
+    x, y = np.where(inst_map > 0)
+    v = inst_map[x, y].astype(int)
+    c = type_map[x, y].astype(int)
+    us = np.unique(v).astype(int)
+    centers = []
+    for u in us:
+        centers.append(
+            [
+                np.mean(y[v == u]).astype(int),
+                np.mean(x[v == u]).astype(int),
+                c[v == u].max() - 1,
+            ]
+        )
+    return np.array(centers)
+
 
 yaml_template = yaml.safe_load(YAML_BASE_FILE)
 
