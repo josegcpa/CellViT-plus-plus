@@ -45,7 +45,6 @@ do
         --cellvit_path $CELLVIT_PATH \
         --input_shape $MAX_HEIGHT $MAX_WIDTH
     
-    # send this to the background
     uv run python calculate-metrics.py \
         --logdir $BEST_CONFIGURATION \
         --output_path $sweep
