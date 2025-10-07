@@ -1,14 +1,12 @@
+import os
 import numpy as np
 import yaml
-import pickle
 from sklearn.model_selection import train_test_split
 from pathlib import Path
 from skimage import io
 from tqdm import trange
 
-CELLVIT_PATH = "../checkpoints/CellViT-Virchow-x40-AMP.pth"
-
-YAML_BASE_FILE = f"""
+YAML_BASE_FILE = """
 logging:
   mode: offline
   project: cellvit++
@@ -43,7 +41,7 @@ data:
   label_map:
     
 
-cellvit_path: {CELLVIT_PATH}
+cellvit_path: 
 
 model:
   parameters:
@@ -95,15 +93,23 @@ yaml_template = yaml.safe_load(YAML_BASE_FILE)
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Create CellViT++ dataset.")
     parser.add_argument("--data_dir", type=str, required=True, help="Path to dataset directory.")
     parser.add_argument("--sweep_name", type=str, required=True, help="Name of the sweep.")
     parser.add_argument("--output_dir", type=str, required=True, help="Path to output directory.")
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        required=True,
+        help="Path to CellViT checkpoint.",
+    )
     args = parser.parse_args()
-    
+
     data_dir = Path(args.data_dir)
-    
+
+    checkpoint_base_name = Path(args.checkpoint_path).name.split(".")[0]
+
     # define output paths
     output_dir = Path(args.output_dir)
     output_dirs = {
@@ -112,18 +118,18 @@ if __name__ == "__main__":
         "test_images": output_dir / "test" / "images",
         "test_labels": output_dir / "test" / "labels",
         "split": output_dir / "splits" / "fold_0",
-        "train_configs": output_dir / "train_configs" / "ViT256",
-        }
+        "train_configs": output_dir / "train_configs" / checkpoint_base_name,
+    }
     for k in output_dirs:
         output_dirs[k].mkdir(exist_ok=True, parents=True)
-    
+
     dataset_name = data_dir.name
-    
+
     train_images = data_dir / "train" / "images.npy"
     train_labels = data_dir / "train" / "labels.npy"
     test_images = data_dir / "test" / "images.npy"
     test_labels = data_dir / "test" / "labels.npy"
-    
+
     train_images = np.load(train_images, allow_pickle=True)
     train_labels = np.load(train_labels, allow_pickle=True)
     max_class = int(train_labels[..., 1].max())
@@ -132,56 +138,63 @@ if __name__ == "__main__":
     idx = 0
     for i in trange(len(train_images)):
         curr_name = f"{dataset_name}_{idx}"
-        io.imsave(output_dirs["train_images"] / f"{curr_name}.png", train_images[i])
-        inst_map, type_map = train_labels[i][..., 0], train_labels[i][..., 1]
-        inst_map = inst_map * np.where(type_map > 0, 1, 0)
-        np.savez(
-            output_dirs["train_labels"] / f"{curr_name}", 
-            **{"inst_map": inst_map, "type_map": type_map}
-        )
-        
-        centers = get_centers(inst_map, type_map)
-        if len(centers) > 1:
-          centers = np.stack(centers, axis=0)
-          centers = "\n".join([",".join(map(str, c)) for c in centers])
-        else:
-          centers = ""
-        with open(output_dirs["train_labels"] / f"{curr_name}.csv", "w") as f:
-            f.write(centers)
-            
+        out_image = output_dirs["train_images"] / f"{curr_name}.png"
+        out_label = output_dirs["train_labels"] / f"{curr_name}"
+        if os.path.exists(out_image) is False:
+            io.imsave(out_image, train_images[i])
+        if os.path.exists(f"{out_label}.npz") is False:
+            inst_map, type_map = (
+                train_labels[i][..., 0],
+                train_labels[i][..., 1],
+            )
+            inst_map = inst_map * np.where(type_map > 0, 1, 0)
+            np.savez(out_label, **{"inst_map": inst_map, "type_map": type_map})
+
+            centers = get_centers(inst_map, type_map)
+            if len(centers) > 1:
+                centers = np.stack(centers, axis=0)
+                centers = "\n".join([",".join(map(str, c)) for c in centers])
+            else:
+                centers = ""
+            with open(
+                output_dirs["train_labels"] / f"{curr_name}.csv", "w"
+            ) as f:
+                f.write(centers)
+
         ids["train"].append(curr_name)
         idx += 1
-    
+
     test_images = np.load(test_images, allow_pickle=True)
     test_labels = np.load(test_labels, allow_pickle=True)
     for i in trange(len(test_images)):
         curr_name = f"{dataset_name}_{idx}"
-        io.imsave(output_dirs["test_images"] / f"{curr_name}.png", test_images[i])
-        inst_map, type_map = test_labels[i][..., 0], test_labels[i][..., 1]
-        inst_map = inst_map * np.where(type_map > 0, 1, 0)
-        np.savez(
-            output_dirs["test_labels"] / f"{curr_name}", 
-            **{"inst_map": inst_map, "type_map": type_map}
-        )
-        
-        centers = get_centers(inst_map, type_map)
-        if len(centers) > 1:
-          centers = np.stack(centers, axis=0)
-          centers = "\n".join([",".join(map(str, c)) for c in centers])
-        else:
-          centers = ""
-        with open(output_dirs["test_labels"] / f"{curr_name}.csv", "w") as f:
-            f.write(centers)
+        out_image = output_dirs["test_images"] / f"{curr_name}.png"
+        out_label = output_dirs["test_labels"] / f"{curr_name}"
+        if os.path.exists(out_image) is False:
+            io.imsave(out_image, test_images[i])
+        if os.path.exists(f"{out_label}.npz") is False:
+            inst_map, type_map = test_labels[i][..., 0], test_labels[i][..., 1]
+            inst_map = inst_map * np.where(type_map > 0, 1, 0)
+            np.savez(out_label, **{"inst_map": inst_map, "type_map": type_map})
+            centers = get_centers(inst_map, type_map)
+            if len(centers) > 1:
+                centers = np.stack(centers, axis=0)
+                centers = "\n".join([",".join(map(str, c)) for c in centers])
+            else:
+                centers = ""
+            with open(
+                output_dirs["test_labels"] / f"{curr_name}.csv", "w"
+            ) as f:
+                f.write(centers)
 
         ids["test"].append(curr_name)
         idx += 1
-    
+
     train_fold, val_fold = train_test_split(
         ids["train"],
         train_size=0.8,
         random_state=42,
     )
-    
 
     with open(str(output_dirs["split"]/"train.csv"), "w") as f:
         for i in train_fold:
@@ -189,7 +202,7 @@ if __name__ == "__main__":
     with open(str(output_dirs["split"]/"val.csv"), "w") as f:
         for i in val_fold:
             f.write(f"{i}\n")
-            
+
     yaml_template["data"]["dataset_path"] = str(output_dir.absolute())
     yaml_template["data"]["train_filelist"] = str(
         (output_dirs["split"] / "train.csv").absolute())
@@ -201,6 +214,7 @@ if __name__ == "__main__":
     yaml_template["data"]["num_classes"] = int(max_class)
     yaml_template["sweep"]["name"] = args.sweep_name
     yaml_template["logging"]["name"] = args.sweep_name
-    
+    yaml_template["cellvit_path"] = args.checkpoint_path
+
     with open(output_dirs["train_configs"] / "fold_0.yaml", "w") as f:
         yaml.dump(yaml_template, f)

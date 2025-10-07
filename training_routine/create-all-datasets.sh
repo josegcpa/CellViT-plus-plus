@@ -6,18 +6,29 @@
 
 DATASET_DIR=../datasets
 
-for dataset in $DATASET_DIR/classpose/*
+rm -rf ../datasets/conic \
+    ../datasets/consep \
+    ../datasets/glysac \
+    ../datasets/monusac \
+    ../datasets/nucls \
+    ../datasets/puma
+
+for checkpoint in ../checkpoints/*.pth
 do
-    DATASET_NAME=$(basename $dataset)
-    echo Creating CellViT++ dataset for $DATASET_NAME
-    out_dir=$DATASET_DIR/$DATASET_NAME
-    rm -rf $out_dir
-    python create-cellvitpp-dataset-1.py \
-        --data_dir $dataset \
-        --output_dir $out_dir \
-        --sweep_name $DATASET_NAME &&
-    uv run python create-cellvitpp-dataset-2.py \
-        --output_dir $out_dir &
+    for dataset in $DATASET_DIR/classpose/*
+    do
+        DATASET_NAME=$(basename $dataset)
+        MODEL_NAME=$(basename $checkpoint | cut -d '.' -f 1)
+        echo Creating CellViT++ dataset for $DATASET_NAME with $MODEL_NAME
+        out_dir=$DATASET_DIR/$DATASET_NAME
+        python create-cellvitpp-dataset-1.py \
+            --data_dir $dataset \
+            --output_dir $out_dir \
+            --sweep_name "$DATASET_NAME"_$MODEL_NAME \
+            --checkpoint_path $checkpoint &&
+        uv run python create-cellvitpp-dataset-2.py \
+            --output_dir $out_dir &
+    done
+    wait
 done
 
-wait
