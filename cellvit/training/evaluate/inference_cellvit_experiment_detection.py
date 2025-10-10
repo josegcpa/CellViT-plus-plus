@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 import pycm
 import torch
+import torch.nn.functional as F
 import tqdm
 
 from shapely.geometry import Polygon
@@ -58,6 +59,7 @@ from cellvit.training.utils.metrics import (
 )
 from cellvit.training.utils.tools import pair_coordinates
 
+
 def tile_image_batch(
     batch: torch.Tensor, patch_size: int, overlap: int = 0
 ) -> torch.Tensor:
@@ -88,16 +90,22 @@ def tile_image_batch(
             if coords not in all_coords:
                 all_coords.append(coords)
     max_coords = np.array(all_coords).max(0)[[1, 3]]
-    assert max_coords[0] == height and max_coords[1] == width, "Coordinates do not match image size: {} != {}".format(max_coords, [height, width])
+    assert (
+        max_coords[0] == height and max_coords[1] == width
+    ), "Coordinates do not match image size: {} != {}".format(
+        max_coords, [height, width]
+    )
     for coords in all_coords:
         tile = batch[:, :, coords[0] : coords[1], coords[2] : coords[3]]
         tiles.append(tile)
     return torch.cat(tiles, dim=0), all_coords
 
+
 def tolist_if_necessary(x):
     if isinstance(x, np.ndarray):
         return x.tolist()
     return x
+
 
 class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
     """Inference Experiment for CellViT with a Classifier Head on Detection Data
@@ -147,7 +155,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
     ) -> None:
         assert len(input_shape) == 2, "Input shape must havea length of 2."
         for in_sh in input_shape:
-            assert in_sh in CELL_IMAGE_SIZES, "Shape entries must be divisible by 32."
+            assert (
+                in_sh in CELL_IMAGE_SIZES
+            ), "Shape entries must be divisible by 32."
         self.input_shape = input_shape
         super().__init__(
             logdir=logdir,
@@ -190,7 +200,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         )
         return inference_transform
 
-    def _load_dataset(self, transforms: Callable, normalize_stains: bool) -> Dataset:
+    def _load_dataset(
+        self, transforms: Callable, normalize_stains: bool
+    ) -> Dataset:
         """Load Detection Dataset
 
         Args:
@@ -262,7 +274,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
                 bb_index[1, :] = np.ceil(bb_index[1, :])
                 bb_index = bb_index.astype(np.uint8)
                 cell_token = patch_tokens[
-                    :, bb_index[0, 0] : bb_index[1, 0], bb_index[0, 1] : bb_index[1, 1]
+                    :,
+                    bb_index[0, 0] : bb_index[1, 0],
+                    bb_index[0, 1] : bb_index[1, 1],
                 ]
                 cell_token = torch.mean(
                     rearrange(cell_token, "D H W -> (H W) D"), dim=0
@@ -280,7 +294,12 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         image_names: List,
         postprocessor: DetectionCellPostProcessorCupy,
     ) -> Tuple[
-        List[dict], List[dict], dict[dict], List[float], List[float], List[float]
+        List[dict],
+        List[dict],
+        dict[dict],
+        List[float],
+        List[float],
+        List[float],
     ]:
         """Retrieve CellViT Inference results from a batch of patches
 
@@ -319,22 +338,44 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
 
         x, y = images.shape[2:4]
         batch_size = images.shape[0]
+        padding_x = max(256 - x, 0)
+        padding_y = max(256 - y, 0)
+        if padding_x > 0 or padding_y > 0:
+            images = F.pad(images, (0, padding_y, 0, padding_x))
         if batch_size != 1:
             raise ValueError("Batch size must be 1")
-        if x < 256 or y < 256:
-            raise ValueError("Image size must be at least 256")
         images, coords = tile_image_batch(images, 256, 64)
         images = images.to(self.device)
         if self.mixed_precision:
             with torch.autocast(device_type="cuda", dtype=torch.float16):
-                predictions = self.cellvit_model.forward(images, retrieve_tokens=True)
+                predictions = self.cellvit_model.forward(
+                    images, retrieve_tokens=True
+                )
         else:
-            predictions = self.cellvit_model.forward(images, retrieve_tokens=True)
-                    
+            predictions = self.cellvit_model.forward(
+                images, retrieve_tokens=True
+            )
+
         # transform predictions and create tokens
         predictions = self._apply_softmax_reorder(predictions)
         _, cell_pred_dict = postprocessor.post_process_batch(predictions)
-        tokens = self._extract_tokens(cell_pred_dict, predictions, self.input_shape)        
+        # remove preditctions with centroids outside of image
+        if padding_x > 0 or padding_y > 0:
+            to_remove = []
+            image_size = np.array([y, x])
+            for k in cell_pred_dict[0]:
+                if np.any(cell_pred_dict[0][k]["centroid"] > image_size):
+                    to_remove.append(k)
+            for k in to_remove:
+                del cell_pred_dict[0][k]
+            # renumber keys
+            new_cell_pred_dict = {}
+            for i, k in enumerate(sorted(cell_pred_dict[0].keys())):
+                new_cell_pred_dict[i + 1] = cell_pred_dict[0][k]
+            cell_pred_dict[0] = new_cell_pred_dict
+        tokens = self._extract_tokens(
+            cell_pred_dict, predictions, self.input_shape
+        )
 
         final_cell_pred_dict = [[] for _ in range(batch_size)]
         final_tokens = [[] for _ in range(batch_size)]
@@ -349,18 +390,22 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
                     pd["contour"] = np.array(pred_dict[k]["contour"]) + adjust
                     final_cell_pred_dict[j].append(pd)
                     final_tokens[j].append(tokens[i + batch_size * j][k - 1])
-        
+
         # remove overlaps caused by tiled prediction
         for k in range(len(final_cell_pred_dict)):
             n_cells = len(final_cell_pred_dict[k])
             intersections = np.zeros((n_cells, n_cells), dtype=np.float)
-            all_polygons = [Polygon(x["contour"]) for x in final_cell_pred_dict[k]]
+            all_polygons = [
+                Polygon(x["contour"]) for x in final_cell_pred_dict[k]
+            ]
             all_sizes = np.array([x.area for x in all_polygons])
             to_remove = []
             for a in range(n_cells):
                 for b in range(n_cells):
                     try:
-                        intersections[a, b] = all_polygons[a].intersection(all_polygons[b]).area
+                        intersections[a, b] = (
+                            all_polygons[a].intersection(all_polygons[b]).area
+                        )
                         intersections[b, a] = intersections[a, b]
                     except:
                         pass
@@ -372,21 +417,21 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
                     matches = matches[matches != matches[largest]]
                     to_remove.extend(matches)
             to_remove = np.unique(to_remove)
-                        
+
             final_tokens[k] = [
-                final_tokens[k][i] 
-                for i in range(n_cells) if i not in to_remove
+                final_tokens[k][i] for i in range(n_cells) if i not in to_remove
             ]
             final_cell_pred_dict[k] = [
-                final_cell_pred_dict[k][i] 
-                for i in range(n_cells) if i not in to_remove
+                final_cell_pred_dict[k][i]
+                for i in range(n_cells)
+                if i not in to_remove
             ]
-            
+
             final_cell_pred_dict[k] = {
-                i + 1: final_cell_pred_dict[k][i] 
+                i + 1: final_cell_pred_dict[k][i]
                 for i in range(len(final_cell_pred_dict[k]))
             }
-        
+
         cell_pred_dict = final_cell_pred_dict
         tokens = final_tokens
 
@@ -397,7 +442,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             cell_types,
             patch_token,
             image_name,
-        ) in zip(cell_pred_dict, cell_gt_batch, types_batch, tokens, image_names):
+        ) in zip(
+            cell_pred_dict, cell_gt_batch, types_batch, tokens, image_names
+        ):
             image_pred_dict[image_name] = {}
             pred_centroids = [v["centroid"] for v in pred_dict.values()]
             pred_centroids = np.array(pred_centroids)
@@ -414,8 +461,12 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
                     )
                     for k in pred_dict[cell_idx + 1]:
                         if k in ["centroid", "contour", "bbox"]:
-                            pred_dict[cell_idx + 1][k] = np.array(pred_dict[cell_idx + 1][k])
-                    image_pred_dict[image_name][cell_idx + 1] = pred_dict[cell_idx + 1]
+                            pred_dict[cell_idx + 1][k] = np.array(
+                                pred_dict[cell_idx + 1][k]
+                            )
+                    image_pred_dict[image_name][cell_idx + 1] = pred_dict[
+                        cell_idx + 1
+                    ]
 
                 # get a paired representation
                 paired, unpaired_true, unpaired_pred = pair_coordinates(
@@ -454,7 +505,10 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         )
 
     def _get_global_classifier_scores(
-        self, predictions: torch.Tensor, probabilities: torch.Tensor, gt: torch.Tensor
+        self,
+        predictions: torch.Tensor,
+        probabilities: torch.Tensor,
+        gt: torch.Tensor,
     ) -> Tuple[float, float, float, float, float, float]:
         """Calculate global metrics for the classification head, *without* taking quality of the detection model into account
 
@@ -487,9 +541,18 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         f1_score = float(f1_func(predictions, gt).detach().cpu())
         prec_score = float(prec_func(predictions, gt).detach().cpu())
         recall_score = float(recall_func(predictions, gt).detach().cpu())
-        average_prec = float(average_prec_func(probabilities, gt).detach().cpu())
+        average_prec = float(
+            average_prec_func(probabilities, gt).detach().cpu()
+        )
 
-        return f1_score, prec_score, recall_score, acc_score, auroc_score, average_prec
+        return (
+            f1_score,
+            prec_score,
+            recall_score,
+            acc_score,
+            auroc_score,
+            average_prec,
+        )
 
     def _plot_confusion_matrix(
         self,
@@ -511,7 +574,7 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         )
         label_map = self.run_conf["data"]["label_map"]
         label_map = {int(k): v for k, v in label_map.items()}
-        #conf_matrix.relabel(label_map)
+        # conf_matrix.relabel(label_map)
         conf_matrix.save_stat(
             str(test_result_dir / "confusion_matrix_summary"), summary=True
         )
@@ -538,8 +601,12 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             normalized=True,
         )
         fig = axs.get_figure()
-        fig.savefig(str(test_result_dir / "confusion_matrix_normalized.png"), dpi=600)
-        fig.savefig(str(test_result_dir / "confusion_matrix_normalized.pdf"), dpi=600)
+        fig.savefig(
+            str(test_result_dir / "confusion_matrix_normalized.png"), dpi=600
+        )
+        fig.savefig(
+            str(test_result_dir / "confusion_matrix_normalized.pdf"), dpi=600
+        )
         plt.close(fig)
 
     def update_cell_dict_with_predictions(
@@ -560,7 +627,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         Returns:
             dict: Updated cell dictionary, be careful about the ordering -> Types start with the index 0
         """
-        self.logger.info("Updating PanNuke-cell-preds with dataset specific classes")
+        self.logger.info(
+            "Updating PanNuke-cell-preds with dataset specific classes"
+        )
         for pred, prob, inform in zip(predictions, probabilities, metadata):
             cell_found = False
             image_name = inform[2]
@@ -578,24 +647,29 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
                     cell_dict[image_name][cell_idx]["type_prob"] = float(
                         prob[int(pred)]
                     )
-                    cell_dict[image_name][cell_idx]["bbox"] = tolist_if_necessary(
-                        cell_dict[image_name][
-                        cell_idx]["bbox"]
+                    cell_dict[image_name][cell_idx]["bbox"] = (
+                        tolist_if_necessary(
+                            cell_dict[image_name][cell_idx]["bbox"]
+                        )
                     )
-                    cell_dict[image_name][cell_idx]["centroid"] = tolist_if_necessary(
-                        cell_dict[image_name][
-                        cell_idx]["centroid"]
+                    cell_dict[image_name][cell_idx]["centroid"] = (
+                        tolist_if_necessary(
+                            cell_dict[image_name][cell_idx]["centroid"]
+                        )
                     )
-                    cell_dict[image_name][cell_idx]["contour"] = tolist_if_necessary(
-                        cell_dict[image_name][
-                        cell_idx]["contour"]
+                    cell_dict[image_name][cell_idx]["contour"] = (
+                        tolist_if_necessary(
+                            cell_dict[image_name][cell_idx]["contour"]
+                        )
                     )
                     cell_found = True
             assert cell_found, "Not all cells have predictions"
 
         return cell_dict
 
-    def _calculate_pipeline_scores(self, cell_dict: dict) -> Tuple[dict, dict, dict]:
+    def _calculate_pipeline_scores(
+        self, cell_dict: dict
+    ) -> Tuple[dict, dict, dict]:
         """Calculate the final pipeline scores, use the TIA evaluation metrics
 
         Args:
@@ -623,11 +697,14 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             enumerate(cell_dict.items()), total=len(cell_dict)
         ):
             try:
-                cell_annot = pd.read_csv(annot_path / f"{image_name}.csv", header=None)
+                cell_annot = pd.read_csv(
+                    annot_path / f"{image_name}.csv", header=None
+                )
             except:
                 continue
             cell_annot = [
-                (int(row[0]), int(row[1]), row[2]) for _, row in cell_annot.iterrows()
+                (int(row[0]), int(row[1]), row[2])
+                for _, row in cell_annot.iterrows()
             ]
             detections_gt = [(int(x), int(y)) for x, y, _ in cell_annot]
             types_gt = [l for _, _, l in cell_annot]
@@ -635,7 +712,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             true_centroids = np.array(detections_gt)
             true_instance_type = np.array(types_gt)
             pred_centroids = np.array([v["centroid"] for k, v in cells.items()])
-            pred_instance_type = np.array([v["type"] for k, v in cells.items()])  # +1?
+            pred_instance_type = np.array(
+                [v["type"] for k, v in cells.items()]
+            )  # +1?
 
             if true_centroids.shape[0] == 0:
                 true_centroids = np.array([[0, 0]])
@@ -649,12 +728,14 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
                 true_centroids, pred_centroids, pairing_radius
             )
             true_idx_offset = (
-                true_idx_offset + detection_tracker["true_inst_type_all"][-1].shape[0]
+                true_idx_offset
+                + detection_tracker["true_inst_type_all"][-1].shape[0]
                 if image_idx != 0
                 else 0
             )
             pred_idx_offset = (
-                pred_idx_offset + detection_tracker["pred_inst_type_all"][-1].shape[0]
+                pred_idx_offset
+                + detection_tracker["pred_inst_type_all"][-1].shape[0]
                 if image_idx != 0
                 else 0
             )
@@ -687,12 +768,12 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             detection_tracker["pred_inst_type_all"], axis=0
         )
 
-        detection_tracker["paired_true_type"] = detection_tracker["true_inst_type_all"][
-            detection_tracker["paired_all"][:, 0]
-        ]
-        detection_tracker["paired_pred_type"] = detection_tracker["pred_inst_type_all"][
-            detection_tracker["paired_all"][:, 1]
-        ]
+        detection_tracker["paired_true_type"] = detection_tracker[
+            "true_inst_type_all"
+        ][detection_tracker["paired_all"][:, 0]]
+        detection_tracker["paired_pred_type"] = detection_tracker[
+            "pred_inst_type_all"
+        ][detection_tracker["paired_all"][:, 1]]
         detection_tracker["unpaired_true_type"] = detection_tracker[
             "true_inst_type_all"
         ][detection_tracker["unpaired_true_all"]]
@@ -732,7 +813,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
 
         # prepare and transform to match the detection data format
         image_idx = list(
-            set(sorted([f.stem.split("_")[0] for f in annot_path.glob("*.csv")]))
+            set(
+                sorted([f.stem.split("_")[0] for f in annot_path.glob("*.csv")])
+            )
         )
 
         # ground-truth
@@ -743,11 +826,14 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         ):
             tcga_name = image_name.split("_")[0]
             try:
-                cell_annot = pd.read_csv(annot_path / f"{image_name}.csv", header=None)
+                cell_annot = pd.read_csv(
+                    annot_path / f"{image_name}.csv", header=None
+                )
             except:
                 continue
             cell_annot = [
-                (int(row[0]), int(row[1]), row[2]) for _, row in cell_annot.iterrows()
+                (int(row[0]), int(row[1]), row[2])
+                for _, row in cell_annot.iterrows()
             ]
             detections_gt = [(int(x), int(y)) for x, y, _ in cell_annot]
             types_gt = [l for _, _, l in cell_annot]
@@ -814,9 +900,12 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
 
         # Step 1: Extract cells with CellViT
         with torch.no_grad():
-            for _, (images, cell_gt_batch, types_batch, image_names) in tqdm.tqdm(
-                enumerate(cellvit_dl), total=len(cellvit_dl)
-            ):
+            for _, (
+                images,
+                cell_gt_batch,
+                types_batch,
+                image_names,
+            ) in tqdm.tqdm(enumerate(cellvit_dl), total=len(cellvit_dl)):
                 (
                     batch_cells_cleaned,
                     batch_cells,
@@ -832,10 +921,14 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
                     postprocessor=postprocessor,
                 )
                 extracted_cells = extracted_cells + batch_cells
-                extracted_cells_cleaned = extracted_cells_cleaned + batch_cells_cleaned
+                extracted_cells_cleaned = (
+                    extracted_cells_cleaned + batch_cells_cleaned
+                )
                 image_pred_dict.update(batch_pred_dict)
                 detection_scores["F1"] = detection_scores["F1"] + batch_f1s
-                detection_scores["Prec"] = detection_scores["Prec"] + batch_precs
+                detection_scores["Prec"] = (
+                    detection_scores["Prec"] + batch_precs
+                )
                 detection_scores["Rec"] = detection_scores["Rec"] + batch_recs
 
             cellvit_detection_scores = {
@@ -849,7 +942,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             scores["cellvit_scores"] = cellvit_detection_scores
 
         # Step 2: Classify Cell Tokens with the classifier, but only the cleaned version
-        cleaned_inference_results = self._get_classifier_result(extracted_cells_cleaned)
+        cleaned_inference_results = self._get_classifier_result(
+            extracted_cells_cleaned
+        )
 
         scores["classifier"] = {}
         scores["cellvit_scores"] = cellvit_detection_scores
@@ -896,7 +991,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             metadata=inference_results["metadata"],
         )
 
-        with open(self.test_result_dir / "cell_pred_dict.json", "w") as json_file:
+        with open(
+            self.test_result_dir / "cell_pred_dict.json", "w"
+        ) as json_file:
             json.dump(cell_pred_dict, json_file, indent=2)
 
         # Step 4: Evaluate the whole pipeline and calculating the final scores
@@ -921,7 +1018,9 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
         self.logger.info(f"{50*'*'}")
         self.logger.info(scores_json)
 
-        with open(self.test_result_dir / "inference_results.json", "w") as json_file:
+        with open(
+            self.test_result_dir / "inference_results.json", "w"
+        ) as json_file:
             json.dump(scores, json_file, indent=2)
 
 
@@ -936,7 +1035,9 @@ class CellViTInfExpDetectionParser:
             type=str,
             help="Path to the log directory with the trained head.",
         )
-        parser.add_argument("--dataset_path", type=str, help="Path to the dataset")
+        parser.add_argument(
+            "--dataset_path", type=str, help="Path to the dataset"
+        )
         parser.add_argument(
             "--cellvit_path", type=str, help="Path to the Cellvit model"
         )
