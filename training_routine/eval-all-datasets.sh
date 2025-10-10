@@ -1,24 +1,25 @@
 set -e
 
-SWEEPS_DIR=../logs_local
-CELLVIT_PATH=../checkpoints/CellViT-Virchow-x40-AMP.pth
-METRICS_DIR=../metrics
+SWEEPS_DIR=logs_local
+METRICS_DIR=metrics
 
 mkdir -p $METRICS_DIR
 
 for sweep in $SWEEPS_DIR/sweep_*
 do
+    DATASET_NAME=$(echo $sweep | cut -d _ -f 3)
     BEST_CONFIGURATION=$(dirname $(
         uv run python3 ../scripts/find_best_hyperparameter.py \
             $sweep \
             --metric AUROC/Validation | grep config.yaml))
+    checkpoint=$(ls ../checkpoints/$(echo $sweep | cut -d '_' -f 4)*pth)
     
     DATASET_PATH=$(cat $BEST_CONFIGURATION/config.yaml | 
         grep dataset_path: | 
         tr -d ' ' | 
         sed 's/dataset_path://'
     )
-    echo $DATASET_PATH
+
     identify -format "%f,%h,%w\n" $DATASET_PATH/test/images/*png > $DATASET_PATH/image_sizes.txt
     MAX_HEIGHT=$(sort -nr $DATASET_PATH/image_sizes.txt | head -n1 | cut -d',' -f2)
     MAX_WIDTH=$(sort -nr $DATASET_PATH/image_sizes.txt | head -n1 | cut -d',' -f3)
@@ -26,7 +27,7 @@ do
     echo Evaluating $sweep
     echo "- Using $BEST_CONFIGURATION"
     echo "- Using $DATASET_PATH"
-    echo "- Using $CELLVIT_PATH"
+    echo "- Using $checkpoint"
     echo "- Original image size: $MAX_HEIGHT x $MAX_WIDTH"
 
     if [[ $MAX_HEIGHT -gt 256 || $MAX_WIDTH -gt 256 ]]; then
@@ -42,14 +43,14 @@ do
     uv run python3 ../cellvit/training/evaluate/inference_cellvit_experiment_detection.py \
         --logdir $BEST_CONFIGURATION \
         --dataset_path $DATASET_PATH \
-        --cellvit_path $CELLVIT_PATH \
+        --cellvit_path $checkpoint \
         --input_shape $MAX_HEIGHT $MAX_WIDTH
     
     uv run python calculate-metrics.py \
         --logdir $BEST_CONFIGURATION \
         --output_path $sweep
     
-    DATASET_NAME=$(echo $sweep | cut -d / -f 3 | cut -d _ -f 2)
-    cp $sweep/metrics.csv $METRICS_DIR/$DATASET_NAME.csv
-    cp $sweep/metrics_cellvit.csv $METRICS_DIR/"$DATASET_NAME"_cellvit.csv
+    CKPT_NAME=$(basename $checkpoint | cut -d '.' -f 1)
+    cp $sweep/metrics.csv $METRICS_DIR/"$DATASET_NAME"_$CKPT_NAME.csv
+    cp $sweep/metrics_cellvit.csv $METRICS_DIR/"$DATASET_NAME"_"$CKPT_NAME"_cellvit.csv
 done
