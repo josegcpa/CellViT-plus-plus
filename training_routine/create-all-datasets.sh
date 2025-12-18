@@ -6,16 +6,9 @@
 
 DATASET_DIR=../datasets
 
-rm -rf ../datasets/conic \
-    ../datasets/consep \
-    ../datasets/glysac \
-    ../datasets/monusac \
-    ../datasets/nucls \
-    ../datasets/puma
-
 for checkpoint in ../checkpoints/*.pth
 do
-    for dataset in $DATASET_DIR/classpose/*
+    for dataset in $DATASET_DIR/classpose/monusac
     do
         DATASET_NAME=$(basename $dataset)
         MODEL_NAME=$(basename $checkpoint | cut -d '.' -f 1)

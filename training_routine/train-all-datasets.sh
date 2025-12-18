@@ -8,7 +8,7 @@ do
     do 
         CONFIG_FILE=$model/fold_0.yaml
         echo Training CellViT++ for $DATASET_NAME with $(basename $model)
-        uv run python ../cellvit/train_cell_classifier_head.py \
+        echo uv run python ../cellvit/train_cell_classifier_head.py \
             --config $CONFIG_FILE --gpu $GPU --sweep
     done
 done

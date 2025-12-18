@@ -8,11 +8,20 @@ mkdir -p $METRICS_DIR
 for sweep in $SWEEPS_DIR/sweep_*
 do
     DATASET_NAME=$(echo $sweep | cut -d _ -f 3)
+    checkpoint=$(ls ../checkpoints/$(echo $sweep | cut -d '_' -f 4)*pth)
+    CKPT_NAME=$(basename $checkpoint | cut -d '.' -f 1)
+    OUT_METRICS_FILE=$METRICS_DIR/"$DATASET_NAME"_$CKPT_NAME.csv
+    OUT_METRICS_FILE_CELLVIT=$METRICS_DIR/"$DATASET_NAME"_"$CKPT_NAME"_cellvit.csv
+
+    if [ -f $OUT_METRICS_FILE ] && [ -f $OUT_METRICS_FILE_CELLVIT ]; then
+        echo "Skipping $sweep"
+        # continue
+    fi
+
     BEST_CONFIGURATION=$(dirname $(
         uv run python3 ../scripts/find_best_hyperparameter.py \
             $sweep \
             --metric AUROC/Validation | grep config.yaml))
-    checkpoint=$(ls ../checkpoints/$(echo $sweep | cut -d '_' -f 4)*pth)
     
     DATASET_PATH=$(cat $BEST_CONFIGURATION/config.yaml | 
         grep dataset_path: | 
@@ -40,17 +49,20 @@ do
 
     echo "- Using $MAX_HEIGHT x $MAX_WIDTH"
 
-    uv run python3 ../cellvit/training/evaluate/inference_cellvit_experiment_detection.py \
+    echo uv run python3 ../cellvit/training/evaluate/inference_cellvit_experiment_detection.py \
         --logdir $BEST_CONFIGURATION \
         --dataset_path $DATASET_PATH \
         --cellvit_path $checkpoint \
         --input_shape $MAX_HEIGHT $MAX_WIDTH
     
+    echo Calculating metrics
+
     uv run python calculate-metrics.py \
         --logdir $BEST_CONFIGURATION \
         --output_path $sweep
     
-    CKPT_NAME=$(basename $checkpoint | cut -d '.' -f 1)
-    cp $sweep/metrics.csv $METRICS_DIR/"$DATASET_NAME"_$CKPT_NAME.csv
-    cp $sweep/metrics_cellvit.csv $METRICS_DIR/"$DATASET_NAME"_"$CKPT_NAME"_cellvit.csv
+    cp $sweep/metrics.csv $OUT_METRICS_FILE
+    cp $sweep/metrics_cellvit.csv $OUT_METRICS_FILE_CELLVIT
+    cp $sweep/predictions.npy $METRICS_DIR/"$DATASET_NAME"_"$CKPT_NAME"_predictions.npy
+    cp $sweep/labels.npy $METRICS_DIR/"$DATASET_NAME"_"$CKPT_NAME"_labels.npy
 done
