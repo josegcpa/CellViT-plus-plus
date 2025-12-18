@@ -1,3 +1,5 @@
+**Important:** this is a fork of [CellVit++](https://github.com/TIO-IKIM/CellViT-plus-plus) featuring changes which allowed us to compare it with [Classpose](https://github.com/sohmandal/classpose) and other datasets. Please read the fork context below for context.
+
 # Fork context
 
 This repository is a fork of the original CellViT++ repository (https://github.com/TIO-IKIM/CellViT-plus-plus). The main difference is that this repository is the training and evaluation routine for CellViT++ models. Inside `training_routine` we outline three scripts which define the entire approach:
