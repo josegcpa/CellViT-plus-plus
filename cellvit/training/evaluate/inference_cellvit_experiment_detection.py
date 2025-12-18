@@ -366,13 +366,34 @@ class CellViTInfExpDetection(CellViTClassifierInferenceExperiment):
             for k in cell_pred_dict[0]:
                 if np.any(cell_pred_dict[0][k]["centroid"] > image_size):
                     to_remove.append(k)
-            for k in to_remove:
-                del cell_pred_dict[0][k]
-            # renumber keys
-            new_cell_pred_dict = {}
-            for i, k in enumerate(sorted(cell_pred_dict[0].keys())):
-                new_cell_pred_dict[i + 1] = cell_pred_dict[0][k]
-            cell_pred_dict[0] = new_cell_pred_dict
+            if len(to_remove) > 0:
+                print(
+                    "Before removing",
+                    len(cell_pred_dict),
+                    len(cell_pred_dict[0]),
+                    cell_pred_dict[0].keys(),
+                )
+                cell_pred_dict[0] = {
+                    k: cell_pred_dict[0][k]
+                    for k in sorted(cell_pred_dict[0].keys())
+                    if k not in to_remove
+                }
+                print(
+                    "After removing",
+                    len(cell_pred_dict),
+                    len(cell_pred_dict[0]),
+                    cell_pred_dict[0].keys(),
+                )
+                cell_pred_dict[0] = {
+                    i + 1: cell_pred_dict[0][k]
+                    for i, k in enumerate(sorted(cell_pred_dict[0].keys()))
+                }
+                print(
+                    "After renumbering",
+                    len(cell_pred_dict),
+                    len(cell_pred_dict[0]),
+                    cell_pred_dict[0].keys(),
+                )
         tokens = self._extract_tokens(
             cell_pred_dict, predictions, self.input_shape
         )
